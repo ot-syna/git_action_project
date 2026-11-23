@@ -56,8 +56,9 @@ jobs:
           Write-Host "Web API count: $webCount"
 
           Write-Host "2. Testing data consistency between DB and Web API..."
-          $dbRaw = docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;"
+          $dbRaw = (docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;") -join ""
           $dbCount = [int]($dbRaw.Trim())
+
           Write-Host "Database count: $dbCount"
 
           if ($dbCount -eq $webCount -and $dbCount -gt 0) {
