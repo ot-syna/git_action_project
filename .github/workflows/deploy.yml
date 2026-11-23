@@ -7,13 +7,16 @@ on:
 
 jobs:
   deploy-and-test:
-    runs-on: self-hosted # Критерий 1 (+1 балл)
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash # <-- Указываем Git Bash вместо PowerShell для Windows
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Критерий 3: Создание .env файла из секретов (+2 балла)
+      # Критерий 3: Создание .env файла из секретов
       - name: Create .env file from secrets
         run: |
           echo "Creating .env file from GitHub Secrets..."
@@ -25,25 +28,25 @@ jobs:
           echo ".env file created successfully"
           cat .env | sed 's/=.*/=***/'
 
-      # Критерий 2: Сборка и запуск Docker Compose (+2 балла)
+      # Критерий 2: Сборка и запуск Docker Compose
       - name: Deploy with Docker Compose
         run: |
-          docker-compose up -d --build
+          docker compose up -d --build
           echo "Waiting for services to start..."
           sleep 15
-          docker-compose ps
+          docker compose ps
 
       - name: Verify containers are running
         run: |
-          if docker-compose ps | grep -q "Up"; then
+          if docker compose ps | grep -q -E "Up|running"; then
             echo "All containers are running"
           else
             echo "Some containers failed to start"
-            docker-compose logs
+            docker compose logs
             exit 1
           fi
 
-      # Критерий 4: Тестирование приложения, БД и сверка данных (+2 балла)
+      # Критерий 4: Тестирование приложения, БД и сверка данных
       - name: Run application tests
         run: |
           echo "1. Testing frontend and backend API..."
@@ -52,7 +55,7 @@ jobs:
           echo "API Response: $API_RESPONSE"
 
           echo "2. Testing data consistency between DB and Web API..."
-          DB_COUNT=$(docker-compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d ' \n\r')
+          DB_COUNT=$(docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d ' \n\r')
           WEB_COUNT=$(echo "$API_RESPONSE" | grep -o '"id"' | wc -l | tr -d ' ')
 
           echo "Database count: $DB_COUNT"
@@ -75,18 +78,16 @@ jobs:
           - Application: Healthy
           - Database: Connected
           - Containers: Running
-          - Database records: ${DB_COUNT:-0}
-          - Web API records: ${WEB_COUNT:-0}
           EOF
 
       - name: Save Docker logs
         if: always()
         run: |
-          docker-compose logs > deployment-logs.txt
+          docker compose logs > deployment-logs.txt
           docker images > docker-images.txt
           docker ps -a > docker-ps.txt
 
-      # Критерий 3: Сохранение артефактов (+1 балл)
+      # Критерий 3: Сохранение артефактов
       - name: Save artifacts
         if: always()
         uses: actions/upload-artifact@v4
