@@ -13,30 +13,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Критерий 3: Создание .env файла из секретов
+      # Критерий 3: Создание .env файла из секретов (без кодировки BOM)
       - name: Create .env file from secrets
         run: |
           Write-Host "Creating .env file from GitHub Secrets..."
-          @"
-          DB_USER=${{ secrets.DB_USER }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          DB_NAME=${{ secrets.DB_NAME }}
-          "@ | Out-File -FilePath .env -Encoding utf8
+          $envContent = "DB_USER=${{ secrets.DB_USER }}`nDB_PASSWORD=${{ secrets.DB_PASSWORD }}`nDB_NAME=${{ secrets.DB_NAME }}"
+          [System.IO.File]::WriteAllText("$PWD\.env", $envContent)
           Write-Host ".env file created successfully"
           Get-Content .env | ForEach-Object { $_ -replace '=.*', '=***' }
 
       # Критерий 2: Сборка и запуск Docker Compose
       - name: Deploy with Docker Compose
         run: |
+          docker compose down --remove-orphans 2>$null
           docker compose up -d --build
           Write-Host "Waiting for services to start..."
           Start-Sleep -Seconds 15
-          docker compose ps
+          docker compose ps -a
 
       - name: Verify containers are running
         run: |
-          $status = docker compose ps
-          if ($status -match "Up|running") {
+          docker compose ps -a
+          $running = docker compose ps --status running --services
+          Write-Host "Running services: $running"
+          if ($running -match "app" -and $running -match "db") {
             Write-Host "All containers are running"
           } else {
             Write-Host "Some containers failed to start"
