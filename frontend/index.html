@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Fullstack App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Список элементов из БД</h1>
+        <p>Данные загружаются из Go API (который берет их из PostgreSQL)</p>
+        
+        <ul id="items-list">
+            <li class="loading">Загрузка данных...</li>
+        </ul>
+
+        <div id="error-message" class="error" style="display: none;"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
