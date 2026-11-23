@@ -25,11 +25,14 @@ jobs:
       # Критерий 2: Сборка и запуск Docker Compose
       - name: Deploy with Docker Compose
         run: |
-          docker compose down --remove-orphans 2>$null
-          docker compose up -d --build
-          Write-Host "Waiting for services to start..."
-          Start-Sleep -Seconds 15
-          docker compose ps -a
+         $ErrorActionPreference = 'Continue'
+         docker compose down --remove-orphans
+         docker compose up -d --build
+         Write-Host "Waiting for services to start..."
+         Start-Sleep -Seconds 15
+         docker compose ps -a
+
+
 
       - name: Verify containers are running
         run: |
@@ -83,9 +86,10 @@ jobs:
       - name: Save Docker logs
         if: always()
         run: |
-          docker compose logs | Out-File -FilePath deployment-logs.txt -Encoding utf8
-          docker images | Out-File -FilePath docker-images.txt -Encoding utf8
-          docker ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
+         $ErrorActionPreference = 'Continue'
+         docker compose logs | Out-File -FilePath deployment-logs.txt -Encoding utf8
+         docker images | Out-File -FilePath docker-images.txt -Encoding utf8
+         docker ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
 
       # Критерий 3: Сохранение артефактов
       - name: Save artifacts
