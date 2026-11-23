@@ -1,95 +1,52 @@
-name: Full Stack Application Deployment Test
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: app-backend:1.0.0
+    container_name: app
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: "8080"
+      STATIC_DIR: /app/static
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-app}
+      DB_PASSWORD: ${DB_PASSWORD:-secret}
+      DB_NAME: ${DB_NAME:-appdb}
+    volumes:
+      - ./frontend:/app/static:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app_net
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  db:
+    image: postgres:16-alpine
+    container_name: app-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: ${DB_NAME:-appdb}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d ${DB_NAME:-appdb}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    networks:
+      - app_net
 
-env:
-  COMPOSE_PROJECT_NAME: myapp
+volumes:
+  db_data:
 
-jobs:
-  deploy-and-test:
-    runs-on: self-hosted # +1 балл (Критерий 1)
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Создание .env из секретов (+2 балла по Критерию 3: использование секретов и подстановка в .env)
-      - name: Create .env file from secrets
-        run: |
-          cat > .env << EOF
-          DB_HOST=${{ secrets.DB_HOST }}
-          DB_PORT=${{ secrets.DB_PORT }}
-          DB_NAME=${{ secrets.DB_NAME }}
-          DB_USER=${{ secrets.DB_USER }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          APP_PORT=${{ secrets.APP_PORT }}
-          APP_SECRET=${{ secrets.APP_SECRET }}
-          API_KEY=${{ secrets.API_KEY }}
-          COMPOSE_PROJECT_NAME=${{ env.COMPOSE_PROJECT_NAME }}
-          EOF
-          cat .env | sed 's/=.*/=***/'
-
-      # Запуск и проверка контейнеров (+2 балла по Критерию 2)
-      - name: Deploy with Docker Compose
-        run: |
-          docker-compose up -d
-          sleep 30
-          docker-compose ps
-
-      - name: Verify containers are running
-        run: |
-          if docker-compose ps | grep -q "Up"; then
-            echo "All containers are running"
-          else
-            docker-compose logs
-            exit 1
-          fi
-
-      # Тестирование приложения и БД (+2 балла по Критерию 4)
-      # ВНИМАНИЕ: замените URL-пути (/health, /api/data) и SQL-запрос под ваш проект!
-      - name: Run application tests
-        run: |
-          curl -f http://localhost:${{ secrets.APP_PORT }}/health || exit 1
-          curl -s http://localhost:${{ secrets.APP_PORT }}/api/data || exit 1
-
-          DB_COUNT=$(docker-compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d ' ' || echo "0")
-          WEB_COUNT=$(curl -s http://localhost:${{ secrets.APP_PORT }}/api/items/count)
-
-          if [ "$DB_COUNT" != "$WEB_COUNT" ]; then
-            echo "Data consistency test failed"
-            exit 1
-          fi
-
-      # Формирование отчета и логов
-      - name: Create test report
-        run: |
-          cat > test-report.md << EOF
-          # Deployment Test Report
-          - Date: $(date)
-          - Application: Healthy
-          - Database: Connected
-          EOF
-
-      - name: Save Docker logs
-        if: always()
-        run: |
-          docker-compose logs > deployment-logs.txt
-          docker images > docker-images.txt
-          docker ps -a > docker-ps.txt
-
-      # Сохранение артефактов (+1 балл по Критерию 3)
-      - name: Save artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-artifacts
-          path: |
-            .env
-            test-report.md
-            deployment-logs.txt
-            docker-images.txt
-            docker-ps.txt
-          retention-days: 30
-x1
+networks:
+  app_net:
+    driver: bridge
