@@ -8,9 +8,6 @@ on:
 jobs:
   deploy-and-test:
     runs-on: self-hosted
-    defaults:
-      run:
-        shell: bash # <-- Указываем Git Bash вместо PowerShell для Windows
 
     steps:
       - name: Checkout code
@@ -19,73 +16,75 @@ jobs:
       # Критерий 3: Создание .env файла из секретов
       - name: Create .env file from secrets
         run: |
-          echo "Creating .env file from GitHub Secrets..."
-          cat > .env << EOF
+          Write-Host "Creating .env file from GitHub Secrets..."
+          @"
           DB_USER=${{ secrets.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
           DB_NAME=${{ secrets.DB_NAME }}
-          EOF
-          echo ".env file created successfully"
-          cat .env | sed 's/=.*/=***/'
+          "@ | Out-File -FilePath .env -Encoding utf8
+          Write-Host ".env file created successfully"
+          Get-Content .env | ForEach-Object { $_ -replace '=.*', '=***' }
 
       # Критерий 2: Сборка и запуск Docker Compose
       - name: Deploy with Docker Compose
         run: |
           docker compose up -d --build
-          echo "Waiting for services to start..."
-          sleep 15
+          Write-Host "Waiting for services to start..."
+          Start-Sleep -Seconds 15
           docker compose ps
 
       - name: Verify containers are running
         run: |
-          if docker compose ps | grep -q -E "Up|running"; then
-            echo "All containers are running"
-          else
-            echo "Some containers failed to start"
+          $status = docker compose ps
+          if ($status -match "Up|running") {
+            Write-Host "All containers are running"
+          } else {
+            Write-Host "Some containers failed to start"
             docker compose logs
             exit 1
-          fi
+          }
 
       # Критерий 4: Тестирование приложения, БД и сверка данных
       - name: Run application tests
         run: |
-          echo "1. Testing frontend and backend API..."
-          curl -f http://localhost:8080/ > /dev/null || exit 1
-          API_RESPONSE=$(curl -sf http://localhost:8080/api/items) || exit 1
-          echo "API Response: $API_RESPONSE"
+          Write-Host "1. Testing frontend and backend API..."
+          $front = Invoke-WebRequest -Uri "http://localhost:8080/" -UseBasicParsing
+          if ($front.StatusCode -ne 200) { exit 1 }
 
-          echo "2. Testing data consistency between DB and Web API..."
-          DB_COUNT=$(docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d ' \n\r')
-          WEB_COUNT=$(echo "$API_RESPONSE" | grep -o '"id"' | wc -l | tr -d ' ')
+          $apiItems = Invoke-RestMethod -Uri "http://localhost:8080/api/items"
+          $webCount = $apiItems.Count
+          Write-Host "Web API count: $webCount"
 
-          echo "Database count: $DB_COUNT"
-          echo "Web API count: $WEB_COUNT"
+          Write-Host "2. Testing data consistency between DB and Web API..."
+          $dbRaw = docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;"
+          $dbCount = [int]($dbRaw.Trim())
+          Write-Host "Database count: $dbCount"
 
-          if [ "$DB_COUNT" = "$WEB_COUNT" ] && [ "$DB_COUNT" -gt 0 ]; then
-            echo "Data consistency test passed"
-          else
-            echo "Data consistency test failed"
+          if ($dbCount -eq $webCount -and $dbCount -gt 0) {
+            Write-Host "Data consistency test passed"
+          } else {
+            Write-Host "Data consistency test failed"
             exit 1
-          fi
+          }
 
       # Формирование отчета и логов
       - name: Create test report
         if: always()
         run: |
-          cat > test-report.md << EOF
+          @"
           # Deployment Test Report
-          - Date: $(date)
+          - Date: $(Get-Date)
           - Application: Healthy
           - Database: Connected
           - Containers: Running
-          EOF
+          "@ | Out-File -FilePath test-report.md -Encoding utf8
 
       - name: Save Docker logs
         if: always()
         run: |
-          docker compose logs > deployment-logs.txt
-          docker images > docker-images.txt
-          docker ps -a > docker-ps.txt
+          docker compose logs | Out-File -FilePath deployment-logs.txt -Encoding utf8
+          docker images | Out-File -FilePath docker-images.txt -Encoding utf8
+          docker ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
 
       # Критерий 3: Сохранение артефактов
       - name: Save artifacts
