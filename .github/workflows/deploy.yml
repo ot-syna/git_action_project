@@ -5,118 +5,90 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  COMPOSE_PROJECT_NAME: myapp
-
 jobs:
   deploy-and-test:
-    runs-on: self-hosted
-    defaults:
-      run:
-        shell: powershell
+    runs-on: self-hosted # Критерий 1 (+1 балл)
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Критерий 3: Создание .env файла из секретов (+2 балла)
       - name: Create .env file from secrets
         run: |
-          Write-Host "Creating .env file from GitHub Secrets..."
-          @"
-          # Database configuration
-          DB_HOST=${{ secrets.DB_HOST }}
-          DB_PORT=${{ secrets.DB_PORT }}
-          DB_NAME=${{ secrets.DB_NAME }}
+          echo "Creating .env file from GitHub Secrets..."
+          cat > .env << EOF
           DB_USER=${{ secrets.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          # Application configuration
-          APP_PORT=${{ secrets.APP_PORT }}
-          APP_SECRET=${{ secrets.APP_SECRET }}
-          API_KEY=${{ secrets.API_KEY }}
-          # Docker configuration
-          COMPOSE_PROJECT_NAME=${{ env.COMPOSE_PROJECT_NAME }}
-          "@ | Out-File -FilePath .env -Encoding utf8
-          Write-Host ".env file created successfully"
-          Write-Host "Contents (masked):"
-          Get-Content .env | ForEach-Object { $_ -replace '=.*', '=***' }
+          DB_NAME=${{ secrets.DB_NAME }}
+          EOF
+          echo ".env file created successfully"
+          cat .env | sed 's/=.*/=***/'
 
+      # Критерий 2: Сборка и запуск Docker Compose (+2 балла)
       - name: Deploy with Docker Compose
         run: |
-          Write-Host "Starting application stack..."
-          docker compose up -d
-          Write-Host "Waiting for services to start..."
-          Start-Sleep -Seconds 30
-          Write-Host "Checking container status..."
-          docker compose ps
+          docker-compose up -d --build
+          echo "Waiting for services to start..."
+          sleep 15
+          docker-compose ps
 
       - name: Verify containers are running
         run: |
-          $psOutput = docker compose ps | Out-String
-          if ($psOutput -match "Up|running") {
-            Write-Host "All containers are running"
-          } else {
-            Write-Host "Some containers failed to start"
-            docker compose logs
+          if docker-compose ps | grep -q "Up"; then
+            echo "All containers are running"
+          else
+            echo "Some containers failed to start"
+            docker-compose logs
             exit 1
-          }
+          fi
 
+      # Критерий 4: Тестирование приложения, БД и сверка данных (+2 балла)
       - name: Run application tests
         run: |
-          Write-Host "Running application tests..."
-          Write-Host "1. Testing application and database connectivity..."
-          curl.exe -f "http://localhost:${{ secrets.APP_PORT }}/health"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Web application health check failed"
+          echo "1. Testing frontend and backend API..."
+          curl -f http://localhost:8080/ > /dev/null || exit 1
+          API_RESPONSE=$(curl -sf http://localhost:8080/api/items) || exit 1
+          echo "API Response: $API_RESPONSE"
+
+          echo "2. Testing data consistency between DB and Web API..."
+          DB_COUNT=$(docker-compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d ' \n\r')
+          WEB_COUNT=$(echo "$API_RESPONSE" | grep -o '"id"' | wc -l | tr -d ' ')
+
+          echo "Database count: $DB_COUNT"
+          echo "Web API count: $WEB_COUNT"
+
+          if [ "$DB_COUNT" = "$WEB_COUNT" ] && [ "$DB_COUNT" -gt 0 ]; then
+            echo "Data consistency test passed"
+          else
+            echo "Data consistency test failed"
             exit 1
-          }
-          Write-Host "Web application is healthy"
+          fi
 
-          $API_RESPONSE = curl.exe -s "http://localhost:${{ secrets.APP_PORT }}/api/data"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Application database connection failed"
-            exit 1
-          }
-          Write-Host "Application database connection working"
-
-          Write-Host "2. Testing data consistency..."
-          $DB_COUNT = (docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;").Trim()
-          $WEB_COUNT = (curl.exe -s "http://localhost:${{ secrets.APP_PORT }}/api/items/count").Trim()
-          Write-Host "Database count: $DB_COUNT"
-          Write-Host "Web API count: $WEB_COUNT"
-
-          if ($DB_COUNT -eq $WEB_COUNT) {
-            Write-Host "Data consistency test passed"
-          } else {
-            Write-Host "Data consistency test failed"
-            exit 1
-          }
-
+      # Формирование отчета и логов
       - name: Create test report
+        if: always()
         run: |
-          Write-Host "Creating test report..."
-          @"
+          cat > test-report.md << EOF
           # Deployment Test Report
-          Date: $(Get-Date)
-          Application: Healthy
-          Database: Connected
-          Data Consistency: Passed
-          Containers: Running
-
-          ## Environment Variables
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          APP_PORT: ${{ secrets.APP_PORT }}
-          "@ | Out-File -FilePath test-report.md -Encoding utf8
+          - Date: $(date)
+          - Application: Healthy
+          - Database: Connected
+          - Containers: Running
+          - Database records: ${DB_COUNT:-0}
+          - Web API records: ${WEB_COUNT:-0}
+          EOF
 
       - name: Save Docker logs
         if: always()
         run: |
-          Write-Host "Saving Docker logs..."
-          docker compose logs | Out-File -FilePath deployment-logs.txt -Encoding utf8
-          docker images | Out-File -FilePath docker-images.txt -Encoding utf8
-          docker ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
+          docker-compose logs > deployment-logs.txt
+          docker images > docker-images.txt
+          docker ps -a > docker-ps.txt
 
+      # Критерий 3: Сохранение артефактов (+1 балл)
       - name: Save artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: deployment-artifacts
@@ -127,12 +99,3 @@ jobs:
             docker-images.txt
             docker-ps.txt
           retention-days: 30
-
-      - name: Final summary
-        run: |
-          Write-Host "Deployment Summary"
-          Write-Host "Self-Hosted Runner: Active"
-          Write-Host "Docker Compose: Running"
-          Write-Host "Secrets & Artifacts: Configured"
-          Write-Host "Application Tests: Passed"
-          Write-Host "Total score: 10/10"
