@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Критерий 3: Создание .env файла из секретов (без кодировки BOM)
+      
       - name: Create .env file from secrets
         run: |
           Write-Host "Creating .env file from GitHub Secrets..."
@@ -22,7 +22,7 @@ jobs:
           Write-Host ".env file created successfully"
           Get-Content .env | ForEach-Object { $_ -replace '=.*', '=***' }
 
-      # Критерий 2: Сборка и запуск Docker Compose
+     
       - name: Deploy with Docker Compose
         run: |
          $ErrorActionPreference = 'Continue'
@@ -47,7 +47,6 @@ jobs:
             exit 1
           }
 
-      # Критерий 4: Тестирование приложения, БД и сверка данных
       - name: Run application tests
         run: |
           Write-Host "1. Testing frontend and backend API..."
@@ -71,7 +70,7 @@ jobs:
             exit 1
           }
 
-      # Формирование отчета и логов
+  
       - name: Create test report
         if: always()
         run: |
@@ -91,7 +90,7 @@ jobs:
          docker images | Out-File -FilePath docker-images.txt -Encoding utf8
          docker ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
 
-      # Критерий 3: Сохранение артефактов
+    
       - name: Save artifacts
         if: always()
         uses: actions/upload-artifact@v4
